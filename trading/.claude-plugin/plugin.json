@@ -1,0 +1,10 @@
+{
+  "name": "trading-skills",
+  "description": "Trading Learning Agent — automated multi-source content ingestion (YouTube, Discord, learning platforms), SQLite second-brain knowledge vault, and confidence-scored strategy synthesis. Includes cs-trading-learner agent and 5 slash commands for systematic trading education.",
+  "version": "1.0.0",
+  "author": "ResoluteStrat",
+  "homepage": "https://github.com/resolutestrat/claude-skills",
+  "repository": "https://github.com/resolutestrat/claude-skills",
+  "license": "MIT",
+  "skills": ["./skills/trading-learning-agent"]
+}
