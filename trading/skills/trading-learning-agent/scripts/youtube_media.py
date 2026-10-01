@@ -39,11 +39,12 @@ def download(url: str, out_dir: Path, cookies: str = "") -> Path:
            "-o", str(out_dir / "%(id)s.%(ext)s"), "--sleep-requests", "1", url]
     if cookies:
         cmd[len(YTDLP):len(YTDLP)] = ["--cookies", cookies]
+    vid = re.search(r"(?:v=|youtu\.be/)([A-Za-z0-9_-]{11})", url).group(1)
+    target = out_dir / f"{vid}.mp4"
     for attempt in range(3):
         r = _run(cmd)
-        found = sorted(out_dir.glob("*.mp4"))
-        if found:
-            return found[-1]
+        if target.exists():
+            return target
         time.sleep(30 * (attempt + 1))
     raise RuntimeError(f"download failed: {r.stderr.strip().splitlines()[-1] if r.stderr else 'unknown'}")
 
@@ -52,8 +53,10 @@ def extract_frames(video: Path, out_dir: Path, scene: float = 0.06, min_gap: int
     out_dir.mkdir(parents=True, exist_ok=True)
     pattern = out_dir / "raw_%05d.jpg"
     vf = f"select='gt(scene,{scene})+isnan(prev_selected_t)+gte(t-prev_selected_t,60)',showinfo"
-    r = _run(["ffmpeg", "-v", "info", "-y", "-i", str(video), "-vf", vf, "-vsync", "vfr",
+    r = _run(["ffmpeg", "-v", "info", "-y", "-i", str(video), "-vf", vf, "-fps_mode", "vfr",
               "-q:v", "3", str(pattern)])
+    if r.returncode != 0:
+        raise RuntimeError("ffmpeg failed: " + " ".join(r.stderr.strip().splitlines()[-3:]))
     times = [float(m.group(1)) for m in re.finditer(r"pts_time:([\d.]+)", r.stderr)]
     frames, last = [], -1e9
     for i, raw in enumerate(sorted(out_dir.glob("raw_*.jpg"))):
