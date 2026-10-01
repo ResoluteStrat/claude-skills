@@ -31,7 +31,9 @@ CLIENT_ARGS = ["--extractor-args", "youtube:player_client=web,mweb"]
 
 def _video_id(url: str):
     m = re.search(r"(?:v=|youtu\.be/)([A-Za-z0-9_-]{11})", url)
-    return m.group(1) if m else None
+    if m:
+        return m.group(1)
+    return url.strip() if re.fullmatch(r"[A-Za-z0-9_-]{11}", url.strip()) else None
 
 
 def _storyboard(video_id: str):
