@@ -123,20 +123,25 @@ def _transcript_via_ytdlp(video_id: str, tmp_dir: str) -> list:
         "--skip-download",
         "--write-auto-sub",
         "--write-sub",
-        "--sub-lang", "en",
+        "--sub-langs", "en.*,en",
         "--sub-format", "vtt",
         "--output", out_template,
         "--quiet",
         url,
     ]
-    try:
-        subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return []
-    vtt_files = list(Path(tmp_dir).glob(f"{video_id}*.vtt"))
-    if not vtt_files:
-        return []
-    return _parse_vtt(vtt_files[0].read_text(encoding="utf-8"))
+    for attempt in range(4):
+        try:
+            subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        except FileNotFoundError:
+            return []
+        except subprocess.TimeoutExpired:
+            pass
+        vtt_files = list(Path(tmp_dir).glob(f"{video_id}*.vtt"))
+        if vtt_files:
+            best = max(vtt_files, key=lambda p: p.stat().st_size)
+            return _parse_vtt(best.read_text(encoding="utf-8"))
+        time.sleep(15 * (attempt + 1))  # back off on YouTube 429 rate limits
+    return []
 
 
 def _parse_vtt(vtt_content: str) -> list:
@@ -256,6 +261,16 @@ def _save_to_vault(meta: VideoMeta, content: str, vault_dir: Path) -> Path:
     file_path.write_text(content, encoding="utf-8")
     _update_index(vault_dir, "YT", meta.ingest_ts[:10], meta.channel,
                   meta.title[:40], f"sources/youtube/{file_path.name}", meta.video_id)
+    sys.path.insert(0, str(Path(__file__).parent))
+    import knowledge_vault
+    conn = knowledge_vault._get_db(vault_dir)
+    known = conn.execute("SELECT 1 FROM sources WHERE source_type='youtube' AND source_id=?",
+                         (meta.video_id,)).fetchone()
+    conn.close()
+    if not known:
+        knowledge_vault.register_source(vault_dir, "youtube", meta.video_id, meta.title,
+                                        url=meta.url, channel=meta.channel,
+                                        file_path=str(file_path))
     return file_path
 
 
