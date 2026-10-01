@@ -51,6 +51,8 @@ def download(url: str, out_dir: Path, cookies: str = "") -> Path:
 
 def extract_frames(video: Path, out_dir: Path, scene: float = 0.06, min_gap: int = 8) -> list:
     out_dir.mkdir(parents=True, exist_ok=True)
+    for old in list(out_dir.glob("raw_*.jpg")) + list(out_dir.glob("frame_*.jpg")):
+        old.unlink()
     pattern = out_dir / "raw_%05d.jpg"
     vf = f"select='gt(scene,{scene})+isnan(prev_selected_t)+gte(t-prev_selected_t,60)',showinfo"
     r = _run(["ffmpeg", "-v", "info", "-y", "-i", str(video), "-vf", vf, "-fps_mode", "vfr",
@@ -66,7 +68,7 @@ def extract_frames(video: Path, out_dir: Path, scene: float = 0.06, min_gap: int
             continue
         last = t
         final = out_dir / f"frame_{len(frames)+1:04d}_{int(t)//60:02d}-{int(t)%60:02d}.jpg"
-        raw.rename(final)
+        raw.replace(final)
         frames.append((t, final.name))
     lines = [f"# Frames: {video.stem}\n", "| Time | File |", "|---|---|"]
     lines += [f"| {int(t)//60}:{int(t)%60:02d} | {n} |" for t, n in frames]
