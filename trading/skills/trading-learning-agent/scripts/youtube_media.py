@@ -78,7 +78,7 @@ def extract_frames(video: Path, out_dir: Path, scene: float = 0.06, min_gap: int
 
 def whisper_transcript(video: Path, out_file: Path, model: str = "small") -> int:
     from faster_whisper import WhisperModel
-    segs, _ = WhisperModel(model, compute_type="int8").transcribe(str(video), vad_filter=True)
+    segs, _ = WhisperModel(model, device="cpu", compute_type="int8").transcribe(str(video), vad_filter=True)
     out_file.parent.mkdir(parents=True, exist_ok=True)
     n = 0
     with out_file.open("w", encoding="utf-8") as f:
