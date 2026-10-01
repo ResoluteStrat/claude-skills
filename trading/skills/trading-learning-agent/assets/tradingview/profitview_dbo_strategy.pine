@@ -1,0 +1,155 @@
+//@version=5
+// ProfitView DBO + Zone - EXPERIMENTAL strategy (backtest in TradingView Strategy Tester).
+// Same rules as the indicator. Backtests of this encoding on gold/NQ futures did NOT show a profitable edge.
+// Set Properties > Commission and Slippage to your broker's real costs before reading any result.
+strategy("ProfitView DBO + Zone strategy (experimental)", overlay=true, initial_capital=10000, pyramiding=0, default_qty_type=strategy.fixed, default_qty_value=1, max_lines_count=200, max_labels_count=100, max_boxes_count=50)
+
+zoneTf    = input.timeframe("60", "Zone timeframe (engulfing)")
+useZone   = input.bool(true, "Require active HTF zone")
+minRun    = input.int(1, "Min same-colour candles before engulfing", minval=1)
+zoneLife  = input.int(72, "Zone life (HTF bars)", minval=1)
+maxStop   = input.float(4.0, "Max stop distance (price units)", minval=0.01)
+buffer    = input.float(0.2, "Stop buffer (price units)", minval=0.0)
+rr        = input.float(3.0, "Target reward:risk", minval=0.5)
+pending   = input.int(18, "Pending order life (bars)", minval=1)
+riskPct   = input.float(1.0, "Risk per trade (% of equity)", minval=0.1)
+holdBars  = input.int(288, "Max bars in trade", minval=1)
+
+// ---- Higher-timeframe zone detection (non-repainting: previous completed HTF bar) ----
+f_htf() =>
+    g = close > open
+    r = close < open
+    runG = g ? nz(ta.barssince(not g)) : 0
+    runR = r ? nz(ta.barssince(not r)) : 0
+    sellC = g[1] and r and close < low[1] and runG[1] >= minRun
+    buyC  = r[1] and g and close > high[1] and runR[1] >= minRun
+    lo = sellC ? open[1] : low[1]
+    hi = sellC ? high[1] : open[1]
+    [sellC[1], buyC[1], lo[1], hi[1], close[1]]
+
+[hSell, hBuy, hLo, hHi, hClose] = request.security(syminfo.tickerid, zoneTf, f_htf(), lookahead=barmerge.lookahead_on)
+htfNew = ta.change(time(zoneTf)) != 0
+
+var float sLo = na, var float sHi = na, var int sAge = 0, var bool sAct = false
+var float bLo = na, var float bHi = na, var int bAge = 0, var bool bAct = false
+var box sBox = na, var box bBox = na
+
+if htfNew
+    if sAct
+        sAge += 1
+        if hClose > sHi or sAge > zoneLife
+            sAct := false
+            box.delete(sBox)
+    if bAct
+        bAge += 1
+        if hClose < bLo or bAge > zoneLife
+            bAct := false
+            box.delete(bBox)
+    if hSell
+        box.delete(sBox)
+        sLo := hLo, sHi := hHi, sAge := 0, sAct := true
+        sBox := box.new(bar_index, sHi, bar_index + 1, sLo, border_color=color.red, bgcolor=color.new(color.red, 85), extend=extend.right)
+    if hBuy
+        box.delete(bBox)
+        bLo := hLo, bHi := hHi, bAge := 0, bAct := true
+        bBox := box.new(bar_index, bHi, bar_index + 1, bLo, border_color=color.green, bgcolor=color.new(color.green, 85), extend=extend.right)
+
+// ---- Levels on the chart timeframe ----
+var vP = array.new_float(), var vF = array.new_int(), var vB = array.new_int()   // V levels (red then green, line at red close)
+var aP = array.new_float(), var aF = array.new_int(), var aB = array.new_int()   // A levels (green then red, line at green close)
+
+if close[1] < open[1] and close > open
+    array.push(vP, close[1]), array.push(vF, bar_index), array.push(vB, -1)
+if close[1] > open[1] and close < open
+    array.push(aP, close[1]), array.push(aF, bar_index), array.push(aB, -1)
+for k = 0 to math.max(array.size(vP) - 1, 0)
+    if array.size(vP) > 0 and array.get(vB, k) == -1 and close < array.get(vP, k)
+        array.set(vB, k, bar_index)
+for k = 0 to math.max(array.size(aP) - 1, 0)
+    if array.size(aP) > 0 and array.get(aB, k) == -1 and close > array.get(aP, k)
+        array.set(aB, k, bar_index)
+if array.size(vP) > 80
+    array.shift(vP), array.shift(vF), array.shift(vB)
+if array.size(aP) > 80
+    array.shift(aP), array.shift(aF), array.shift(aB)
+
+var int redRun = 0
+var int grnRun = 0
+redRun := close < open ? redRun + 1 : 0
+grnRun := close > open ? grnRun + 1 : 0
+
+// Finds the DBO pair broken by the current same-colour run; returns [ok, entryPrice, formedIdx of level 2]
+f_scan(array<float> P, array<int> F, array<int> Bk, int s, float openS, bool isSell) =>
+    int i2 = -1
+    int i1 = -1
+    int n = array.size(F)
+    if n > 0
+        for k = 0 to n - 1
+            bk = array.get(Bk, k)
+            okLvl = bk != -1 and bk >= s and array.get(F, k) <= s and (isSell ? openS >= array.get(P, k) : openS <= array.get(P, k))
+            if okLvl and (i2 == -1 or array.get(F, k) > array.get(F, i2))
+                i2 := k
+        if i2 != -1
+            for k = 0 to n - 1
+                bk = array.get(Bk, k)
+                okLvl = bk != -1 and bk >= s and array.get(F, k) < array.get(F, i2) and array.get(F, k) <= s and (isSell ? openS >= array.get(P, k) : openS <= array.get(P, k)) and (isSell ? array.get(P, k) < array.get(P, i2) : array.get(P, k) > array.get(P, i2))
+                if okLvl and (i1 == -1 or array.get(F, k) > array.get(F, i1))
+                    i1 := k
+    ok = i2 != -1 and i1 != -1 and (array.get(Bk, i1) == bar_index or array.get(Bk, i2) == bar_index)
+    [ok, i2 != -1 ? array.get(P, i2) : na, i2 != -1 ? array.get(F, i2) : na]
+
+var int lastSellRun = -1
+var int lastBuyRun = -1
+bool sellSig = false
+bool buySig = false
+float eP = na
+float stP = na
+float tpP = na
+
+if close < open
+    sS = bar_index - redRun + 1
+    if sS != lastSellRun
+        [ok, entry, f2] = f_scan(vP, vF, vB, sS, open[bar_index - sS], true)
+        if ok
+            head = ta.highest(high, bar_index - int(f2) + 1)
+            stop = head + buffer
+            dist = stop - entry
+            zoneOk = not useZone or (sAct and entry >= sLo and entry <= sHi)
+            if dist > 0 and dist <= maxStop and zoneOk
+                sellSig := true, eP := entry, stP := stop, tpP := entry - rr * dist
+                lastSellRun := sS
+if close > open
+    bS = bar_index - grnRun + 1
+    if bS != lastBuyRun
+        [ok, entry, f2] = f_scan(aP, aF, aB, bS, open[bar_index - bS], false)
+        if ok
+            head = ta.lowest(low, bar_index - int(f2) + 1)
+            stop = head - buffer
+            dist = entry - stop
+            zoneOk = not useZone or (bAct and entry >= bLo and entry <= bHi)
+            if dist > 0 and dist <= maxStop and zoneOk
+                buySig := true, eP := entry, stP := stop, tpP := entry + rr * dist
+                lastBuyRun := bS
+
+var int sigBar = na
+var float curStop = na
+var float curTp = na
+
+if (sellSig or buySig) and strategy.position_size == 0
+    d = math.abs(eP - stP)
+    qty = math.max(strategy.equity * riskPct / 100 / (d * syminfo.pointvalue), 0.0001)
+    sigBar := bar_index
+    curStop := stP
+    curTp := tpP
+    if sellSig
+        strategy.entry("S", strategy.short, qty=qty, limit=eP)
+        strategy.exit("xS", "S", stop=stP, limit=tpP)
+    else
+        strategy.entry("B", strategy.long, qty=qty, limit=eP)
+        strategy.exit("xB", "B", stop=stP, limit=tpP)
+
+if not na(sigBar) and strategy.position_size == 0 and bar_index - sigBar >= pending
+    strategy.cancel("S")
+    strategy.cancel("B")
+if not na(sigBar) and strategy.position_size != 0 and bar_index - sigBar > holdBars
+    strategy.close_all(comment="time exit")
