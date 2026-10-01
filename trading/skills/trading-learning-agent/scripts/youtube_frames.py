@@ -25,6 +25,7 @@ import time
 import urllib.request
 from pathlib import Path
 
+YTDLP = [sys.executable, "-m", "yt_dlp"]
 VAULT_DIR_DEFAULT = Path.home() / ".trading-vault"
 CLIENT_ARGS = ["--extractor-args", "youtube:player_client=web,mweb"]
 
@@ -37,7 +38,7 @@ def _video_id(url: str):
 
 
 def _storyboard(video_id: str):
-    cmd = ["yt-dlp", "-j", "-f", "sb0", *CLIENT_ARGS, f"https://youtu.be/{video_id}"]
+    cmd = [*YTDLP, "-j", "-f", "sb0", *CLIENT_ARGS, f"https://youtu.be/{video_id}"]
     for attempt in range(4):
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
         if r.stdout.strip():
@@ -76,7 +77,7 @@ def capture(video_id: str, vault_dir: Path) -> dict:
 
 
 def _playlist_ids(url: str) -> list:
-    r = subprocess.run(["yt-dlp", "--flat-playlist", "--print", "%(id)s", url],
+    r = subprocess.run([*YTDLP, "--flat-playlist", "--print", "%(id)s", url],
                        capture_output=True, text=True, timeout=120)
     return [l.strip() for l in r.stdout.splitlines() if l.strip()]
 

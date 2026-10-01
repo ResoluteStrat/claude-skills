@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Optional
 
 
+YTDLP = [sys.executable, "-m", "yt_dlp"]
 VAULT_DIR_DEFAULT = Path.home() / ".trading-vault"
 
 
@@ -119,7 +120,7 @@ def _transcript_via_ytdlp(video_id: str, tmp_dir: str) -> list:
     url = f"https://www.youtube.com/watch?v={video_id}"
     out_template = os.path.join(tmp_dir, "%(id)s")
     cmd = [
-        "yt-dlp",
+        *YTDLP,
         "--skip-download",
         "--write-auto-sub",
         "--write-sub",
@@ -322,7 +323,7 @@ def ingest_video(url: str, vault_dir: Path, json_output: bool = False) -> dict:
 
 
 def ingest_playlist(playlist_url: str, vault_dir: Path, delay: float = 2.0) -> list:
-    cmd = ["yt-dlp", "--flat-playlist", "--print", "url", playlist_url, "--quiet"]
+    cmd = [*YTDLP, "--flat-playlist", "--print", "url", playlist_url, "--quiet"]
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
         urls = [u.strip() for u in result.stdout.splitlines() if u.strip()]

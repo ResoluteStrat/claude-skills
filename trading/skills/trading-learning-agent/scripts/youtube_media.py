@@ -25,6 +25,7 @@ import sys
 import time
 from pathlib import Path
 
+YTDLP = [sys.executable, "-m", "yt_dlp"]
 VAULT_DEFAULT = Path.home() / ".trading-vault"
 
 
@@ -34,10 +35,10 @@ def _run(cmd, **kw):
 
 def download(url: str, out_dir: Path, cookies: str = "") -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
-    cmd = ["yt-dlp", "-f", "bv*[height<=720]+ba/b[height<=720]/b", "--merge-output-format", "mp4",
+    cmd = [*YTDLP, "-f", "bv*[height<=720]+ba/b[height<=720]/b", "--merge-output-format", "mp4",
            "-o", str(out_dir / "%(id)s.%(ext)s"), "--sleep-requests", "1", url]
     if cookies:
-        cmd[1:1] = ["--cookies", cookies]
+        cmd[len(YTDLP):len(YTDLP)] = ["--cookies", cookies]
     for attempt in range(3):
         r = _run(cmd)
         found = sorted(out_dir.glob("*.mp4"))
@@ -108,7 +109,7 @@ def main():
         print(process(Path(a.local), vault, a.whisper, a.model))
         return
     if a.playlist:
-        ids = _run(["yt-dlp", "--flat-playlist", "--print", "%(id)s", a.playlist]).stdout.split()
+        ids = _run([*YTDLP, "--flat-playlist", "--print", "%(id)s", a.playlist]).stdout.split()
         urls = [f"https://youtu.be/{i}" for i in ids]
     else:
         urls = [a.url]
